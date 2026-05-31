@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ReduxProvider } from "@/store/provider";
+import { AuthProvider } from "@/components/providers/auth-provider"; // 🟢 Added!
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -19,10 +20,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.className} min-h-screen bg-background text-foreground antialiased`}>
-        <ReduxProvider>
-          {children}
+        <AuthProvider> {/* 🟢 Wrap NextAuth Session */}
+          <ReduxProvider>
+            {children}
           <Toaster position="top-right" closeButton richColors /> {/* 🟢 Custom Sonner settings */}
-        </ReduxProvider>
+          </ReduxProvider>
+        </AuthProvider>
       </body>
     </html>
   );
