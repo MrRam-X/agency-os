@@ -8,7 +8,8 @@ export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
 
   const isAuth = !!token;
-  const isAuthPage = path.startsWith("/login") || path.startsWith("/register-org");
+  const isAuthPage =
+    path.startsWith("/login") || path.startsWith("/register-org");
 
   // 2. Auth Page Redirection (Prevent logged-in users from seeing /login or /register-org)
   if (isAuthPage) {
@@ -28,12 +29,13 @@ export async function middleware(req: NextRequest) {
     const role = token?.role;
 
     // 4. Strict RBAC Routing Gates (Projects and Ledger are Manager/Lead only)
-    const isManagerOrLeadRoute = 
-      path.startsWith("/dashboard/ledger") || 
+    const isManagerOrLeadRoute =
+      path.startsWith("/dashboard/ledger") ||
       path.startsWith("/dashboard/projects");
 
     if (isManagerOrLeadRoute) {
-      const hasAccess = role === "OWNER" || role === "MANAGER" || role === "TEAM_LEAD";
+      const hasAccess =
+        role === "OWNER" || role === "MANAGER" || role === "TEAM_LEAD";
       if (!hasAccess) {
         // Silently redirect unauthorized Developers/Testers back to their main dashboard
         return NextResponse.redirect(new URL("/dashboard", req.url));
@@ -41,10 +43,24 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  return NextResponse.next();
+  // 🟢 5. Initialize the response
+  const response = NextResponse.next();
+
+  // 🟢 6. Cache-Control Security Gate: Disable browser caching for all /dashboard routes
+  // This forces the browser to re-request the server on back-button clicks instead of loading a stale snapshot from memory
+  if (path.startsWith("/dashboard")) {
+    response.headers.set(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate",
+    );
+    response.headers.set("Pragma", "no-cache");
+    response.headers.set("Expires", "0");
+  }
+
+  return response;
 }
 
-// 5. Matcher configuration: Tells Next.js exactly which paths to run the middleware on
+// Matcher configuration
 export const config = {
   matcher: ["/dashboard/:path*", "/login", "/register-org"],
 };

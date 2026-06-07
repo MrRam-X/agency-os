@@ -18,8 +18,10 @@ export function Header({ orgName, userName, userRole }: HeaderProps) {
   const dispatch = useDispatch();
   const sidebarOpen = useSelector((state: RootState) => state.ui.sidebarOpen);
 
-  const handleSignOut = () => {
-    signOut({ callbackUrl: "/" });
+  // 🟢 Modified to force a browser-level hard redirect
+  const handleSignOut = async () => {
+    await signOut({ redirect: false });
+    window.location.href = "/"; // Purges the Next.js SPA memory cache completely
   };
 
   return (

@@ -1,7 +1,8 @@
 "use client";
 
+import { signOut, useSession } from "next-auth/react"; // 🟢 Added to check active authentication state
 import Link from "next/link";
-import Image from "next/image";
+import Image from "next/image"; // 🟢 Kept optimized Next.js Image component
 import {
   ArrowRight,
   KanbanSquare,
@@ -10,10 +11,23 @@ import {
   Bot,
   ShieldCheck,
   UserCheck,
+  User,
+  LogOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function LandingPage() {
+  const { status, data: session } = useSession(); // 🟢 Read active NextAuth session and loading state
+  const isAuthenticated = status === "authenticated";
+  const isLoading = status === "loading";
+
+  // 🟢 Added hard-redirect logout handler
+  const handleSignOut = async () => {
+    await signOut({ redirect: false });
+    window.location.href = "/"; // Purges the SPA memory cache
+  };
+
+  // Animated scroll handler that perfectly calculates off-sets for the sticky header
   const handleScroll = (
     e: React.MouseEvent<HTMLAnchorElement>,
     targetId: string,
@@ -28,22 +42,20 @@ export default function LandingPage() {
 
       window.scrollTo({
         top: offsetPosition,
-        behavior: "smooth", // 🟢 Triggers native hardware-accelerated smooth easing
+        behavior: "smooth",
       });
     }
   };
 
   return (
-    // scroll-smooth applied at the root container to handle smooth page transitions
     <div className="min-h-screen bg-zinc-50/70 text-zinc-900 font-sans selection:bg-zinc-900 selection:text-white scroll-smooth relative">
-      {" "}
-      {/* 🟢 Parallax Background Layer: Opacity increased to 60% and brightness filtered down to 0.88 for a richer, darker look */}
+      {/* Parallax Background Layer */}
       <div
         className="absolute inset-0 z-0 bg-fixed bg-cover bg-center bg-no-repeat pointer-events-none opacity-60"
         style={{
           backgroundImage:
             "url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1920&q=80')",
-          filter: "brightness(0.75)",
+          filter: "brightness(0.88)",
         }}
       ></div>
       {/* Grid overlay for geometric visual depth */}
@@ -58,7 +70,7 @@ export default function LandingPage() {
               width={24}
               height={24}
               className="object-contain"
-            />{" "}
+            />
             <span className="text-base font-bold tracking-tight text-zinc-900">
               AgencyOS
             </span>
@@ -81,23 +93,55 @@ export default function LandingPage() {
             </a>
           </nav>
 
+          {/* Dynamic Header Actions */}
           <div className="flex items-center gap-4">
-            <Link href="/login">
-              <Button
-                variant="ghost"
-                className="text-sm font-medium text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100/60 transition"
-              >
-                Sign In
-              </Button>
-            </Link>
-            <Link href="/register-org">
-              <Button className="text-sm font-medium bg-zinc-900 text-white hover:bg-zinc-800 transition shadow-md hover:shadow-lg">
-                Register Org
-              </Button>
-            </Link>
+            {isLoading ? (
+              // Prevent Layout Shift (CLS) by displaying a quiet pulse skeleton while loading session
+              <div className="h-9 w-28 animate-pulse bg-zinc-200/60 rounded-md"></div>
+            ) : isAuthenticated ? (
+              // 🟢 Render User info and Log Out trigger instead of a second Dashboard button
+              <div className="flex items-center gap-3">
+                {/* User Pill Card */}
+                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-700 bg-zinc-100/80 px-3 py-1.5 rounded-full border border-zinc-200/60">
+                  <User className="h-3.5 w-3.5 text-zinc-400" />
+                  <span className="truncate max-w-[120px]">
+                    {session?.user?.name || "User"}
+                  </span>
+                </div>
+
+                {/* Log Out Button */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleSignOut}
+                  className="h-9 w-9 text-zinc-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                  title="Sign Out"
+                >
+                  <LogOut className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              // If anonymous/logged out, show original auth triggers
+              <>
+                <Link href="/login">
+                  <Button
+                    variant="ghost"
+                    className="text-sm font-medium text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100/60 transition"
+                  >
+                    Sign In
+                  </Button>
+                </Link>
+                <Link href="/register-org">
+                  <Button className="text-sm font-medium bg-zinc-900 text-white hover:bg-zinc-800 transition shadow-md hover:shadow-lg">
+                    Register Org
+                  </Button>
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </header>
+
       {/* 2. Hero Section */}
       <section className="relative z-10 py-28 md:py-36">
         <div className="mx-auto max-w-5xl px-6 text-center">
@@ -116,32 +160,53 @@ export default function LandingPage() {
             sprint velocity, and billing variance under one dashboard.
           </p>
 
+          {/* Dynamic Hero Actions */}
           <div className="mt-12 flex flex-wrap justify-center gap-4">
-            <Link href="/register-org">
-              <Button
-                size="lg"
-                className="gap-2 bg-zinc-900 text-white hover:bg-zinc-800 font-semibold px-6 transition-all duration-300 hover:scale-[1.02] shadow-md hover:shadow-lg"
-              >
-                Launch Your Workspace{" "}
-                <ArrowRight className="h-4 w-4 animate-pulse" />
-              </Button>
-            </Link>
-            <Link href="/login">
-              <Button
-                size="lg"
-                variant="outline"
-                className="border-zinc-200/80 bg-white/85 backdrop-blur-sm hover:bg-zinc-50 text-zinc-700 font-medium px-6 transition-all duration-300 hover:scale-[1.02] shadow-sm"
-              >
-                Employee Login
-              </Button>
-            </Link>
+            {isLoading ? (
+              // Prevent layout shift
+              <div className="h-11 w-44 animate-pulse bg-zinc-200/60 rounded-md"></div>
+            ) : isAuthenticated ? (
+              // 🟢 If authenticated, replace both buttons with a single "Go to Dashboard" CTA
+              <Link href="/dashboard">
+                <Button
+                  size="lg"
+                  className="gap-2 bg-zinc-900 text-white hover:bg-zinc-800 font-semibold px-6 transition-all duration-300 hover:scale-[1.02] shadow-md hover:shadow-lg"
+                >
+                  Go to Dashboard{" "}
+                  <ArrowRight className="h-4 w-4 animate-pulse" />
+                </Button>
+              </Link>
+            ) : (
+              // 🟢 If anonymous/logged out, show original dual CTAs
+              <>
+                <Link href="/register-org">
+                  <Button
+                    size="lg"
+                    className="gap-2 bg-zinc-900 text-white hover:bg-zinc-800 font-semibold px-6 transition-all duration-300 hover:scale-[1.02] shadow-md hover:shadow-lg"
+                  >
+                    Launch Your Workspace{" "}
+                    <ArrowRight className="h-4 w-4 animate-pulse" />
+                  </Button>
+                </Link>
+                <Link href="/login">
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="border-zinc-200/80 bg-white/85 backdrop-blur-sm hover:bg-zinc-50 text-zinc-700 font-medium px-6 transition-all duration-300 hover:scale-[1.02] shadow-sm"
+                  >
+                    Employee Login
+                  </Button>
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </section>
+
       {/* 3. Core Pillars Grid (Features) */}
       <section
         id="features"
-        className="relative z-10 py-24 border-t border-zinc-200/60 bg-white/70 backdrop-blur-sm scroll-mt-20"
+        className="relative z-10 py-24 border-t border-zinc-200/60 bg-white/70 backdrop-blur-sm"
       >
         <div className="mx-auto max-w-7xl px-6">
           <div className="text-center max-w-3xl mx-auto">
@@ -247,10 +312,11 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+
       {/* 4. About / Value Proposition */}
       <section
         id="about"
-        className="relative z-10 py-24 border-t border-zinc-200/60 bg-zinc-50/50 scroll-mt-20"
+        className="relative z-10 py-24 border-t border-zinc-200/60 bg-zinc-50/50"
       >
         <div className="mx-auto max-w-7xl px-6">
           <div className="grid grid-cols-1 gap-16 lg:grid-cols-2 items-center">
@@ -311,6 +377,7 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+
       {/* 5. Minimalist Footer */}
       <footer className="relative z-10 border-t border-zinc-200/60 py-12 bg-white">
         <div className="mx-auto max-w-7xl px-6 flex flex-col md:flex-row items-center justify-between gap-6">
@@ -318,8 +385,8 @@ export default function LandingPage() {
             <Image
               src="/favicon.ico"
               alt="AgencyOS Logo"
-              width={24}
-              height={24}
+              width={20}
+              height={20}
               className="object-contain"
             />
             <span className="text-sm font-bold text-zinc-900">AgencyOS</span>
