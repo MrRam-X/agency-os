@@ -1,13 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
-import { Loader2, Plus, Calendar, FolderKanban } from "lucide-react";
-import { createProject, createSprint } from "@/actions/project-actions";
+import {
+  Loader2,
+  Plus,
+  FolderKanban,
+  Search,
+  X,
+  ChevronDown,
+} from "lucide-react";
+import { createProject } from "@/actions/project-actions";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-// 🟢 Corrected: Importing standard, non-aliased Shadcn Tabs components
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge"; // 🟢 Imported Badge component for tags
 
 interface Member {
   _id: string;
@@ -15,21 +21,16 @@ interface Member {
   role: string;
 }
 
-interface ProjectListSelect {
-  _id: string;
-  name: string;
-}
-
-interface ProjectControlFormsProps {
+interface CreateProjectFormProps {
   teamMembers: Member[];
-  projects: ProjectListSelect[];
 }
 
-export function ProjectControlForms({
-  teamMembers,
-  projects,
-}: ProjectControlFormsProps) {
+export function CreateProjectForm({ teamMembers }: CreateProjectFormProps) {
   const [loading, setLoading] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
   const [projectData, setProjectData] = useState({
     name: "",
     description: "",
@@ -38,14 +39,21 @@ export function ProjectControlForms({
     members: [] as string[],
   });
 
-  const [sprintData, setSprintData] = useState({
-    projectId: "",
-    name: "",
-    startDate: "",
-    endDate: "",
-  });
+  // Close search dropdown when clicking outside the component
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
+        setDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
-  const handleMemberCheck = (memberId: string) => {
+  const handleMemberToggle = (memberId: string) => {
     setProjectData((prev) => {
       const isAssigned = prev.members.includes(memberId);
       return {
@@ -56,6 +64,15 @@ export function ProjectControlForms({
       };
     });
   };
+
+  // Filter out members already selected AND match the search query
+  const filteredMembers = teamMembers.filter((member) => {
+    const matchesSearch = member.name
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase());
+    const isAlreadySelected = projectData.members.includes(member._id);
+    return matchesSearch && !isAlreadySelected;
+  });
 
   const handleProjectSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,33 +97,7 @@ export function ProjectControlForms({
           blendedRate: "",
           members: [],
         });
-      }
-    } catch (err) {
-      toast.error("A client-side exception occurred.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSprintSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-
-    try {
-      const result = await createSprint(sprintData);
-
-      if (result.error) {
-        toast.error(result.error);
-      } else if (result.success) {
-        toast.success(
-          "Sprint timeline created in PLANNING state successfully!",
-        );
-        setSprintData({
-          projectId: "",
-          name: "",
-          startDate: "",
-          endDate: "",
-        });
+        setSearchQuery("");
       }
     } catch (err) {
       toast.error("A client-side exception occurred.");
@@ -116,244 +107,177 @@ export function ProjectControlForms({
   };
 
   return (
-    <Tabs defaultValue="project" className="w-full">
-      <TabsList className="grid w-full grid-cols-2 bg-zinc-100 p-1 rounded-lg mb-6">
-        <TabsTrigger
-          value="project"
-          className="text-xs font-semibold py-1.5 transition"
-        >
-          New Project
-        </TabsTrigger>
-        <TabsTrigger
-          value="sprint"
-          className="text-xs font-semibold py-1.5 transition"
-        >
-          New Sprint
-        </TabsTrigger>
-      </TabsList>
+    <form onSubmit={handleProjectSubmit} className="space-y-4">
+      <div className="space-y-1">
+        <label className="text-xs font-semibold text-zinc-500 pl-1">
+          Project Name
+        </label>
+        <div className="relative">
+          <FolderKanban className="absolute left-3 top-3 h-4 w-4 text-zinc-400" />
+          <Input
+            placeholder="Stripe Payment Engine"
+            required
+            className="pl-9 border-zinc-200"
+            value={projectData.name}
+            onChange={(e) =>
+              setProjectData({ ...projectData, name: e.target.value })
+            }
+            disabled={loading}
+          />
+        </div>
+      </div>
 
-      {/* TAB 1: CREATE PROJECT */}
-      <TabsContent value="project">
-        <form onSubmit={handleProjectSubmit} className="space-y-4">
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-zinc-500 pl-1">
-              Project Name
-            </label>
-            <div className="relative">
-              <FolderKanban className="absolute left-3 top-3 h-4 w-4 text-zinc-400" />
-              <Input
-                placeholder="Stripe Payment Engine"
-                required
-                className="pl-9 border-zinc-200"
-                value={projectData.name}
-                onChange={(e) =>
-                  setProjectData({ ...projectData, name: e.target.value })
-                }
-                disabled={loading}
-              />
-            </div>
+      <div className="space-y-1">
+        <label className="text-xs font-semibold text-zinc-500 pl-1">
+          Description (Optional)
+        </label>
+        <textarea
+          placeholder="Detailed specifications and scope guidelines."
+          className="flex min-h-[70px] w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          value={projectData.description}
+          onChange={(e) =>
+            setProjectData({ ...projectData, description: e.target.value })
+          }
+          disabled={loading}
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-1">
+          <label className="text-xs font-semibold text-zinc-500 pl-1">
+            Billing Contract Type
+          </label>
+          <select
+            value={projectData.billingType}
+            onChange={(e) =>
+              setProjectData({
+                ...projectData,
+                billingType: e.target.value as
+                  | "TIME_AND_MATERIALS"
+                  | "FIXED_PRICE",
+              })
+            }
+            disabled={loading}
+            className="flex h-10 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="TIME_AND_MATERIALS">Time & Materials</option>
+            <option value="FIXED_PRICE">Fixed Price</option>
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs font-semibold text-zinc-500 pl-1">
+            Blended Rate ($/hr)
+          </label>
+          <Input
+            type="number"
+            min="0"
+            required
+            className="border-zinc-200 h-10"
+            placeholder="100"
+            value={projectData.blendedRate}
+            onChange={(e) =>
+              setProjectData({ ...projectData, blendedRate: e.target.value })
+            }
+            disabled={loading}
+          />
+        </div>
+      </div>
+
+      {/* 🟢 Searchable Combobox Member Selector */}
+      <div className="space-y-2 relative" ref={dropdownRef}>
+        <label className="text-xs font-semibold text-zinc-500 pl-1">
+          Assign Team Members
+        </label>
+
+        {/* Search Input Box */}
+        <div className="relative">
+          <Search className="absolute left-3 top-3 h-4 w-4 text-zinc-400" />
+          <Input
+            placeholder="Search employees..."
+            type="text"
+            className="pl-9 pr-9 border-zinc-200 h-10"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setDropdownOpen(true);
+            }}
+            onFocus={() => setDropdownOpen(true)}
+            disabled={loading}
+          />
+          <ChevronDown className="absolute right-3 top-3 h-4 w-4 text-zinc-400 pointer-events-none" />
+        </div>
+
+        {/* Dropdown Selection Panel */}
+        {dropdownOpen && (
+          <div className="absolute left-0 right-0 z-50 mt-1 max-h-[160px] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 shadow-lg space-y-0.5">
+            {filteredMembers.length === 0 ? (
+              <p className="text-xs text-zinc-400 text-center py-3">
+                No matching employees found.
+              </p>
+            ) : (
+              filteredMembers.map((member) => (
+                <button
+                  key={member._id}
+                  type="button"
+                  onClick={() => {
+                    handleMemberToggle(member._id);
+                    setSearchQuery(""); // Clear search query on click
+                  }}
+                  className="flex items-center justify-between w-full text-left rounded-md px-3 py-2 text-sm font-medium text-zinc-700 hover:text-zinc-950 hover:bg-zinc-50 transition"
+                >
+                  <span>{member.name}</span>
+                  <span className="text-[9px] uppercase font-bold px-1.5 bg-zinc-100 border border-zinc-200 rounded text-zinc-500">
+                    {member.role.replace("_", " ")}
+                  </span>
+                </button>
+              ))
+            )}
           </div>
+        )}
 
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-zinc-500 pl-1">
-              Description (Optional)
-            </label>
-            <textarea
-              placeholder="Detailed specifications and scope guidelines."
-              className="flex min-h-[60px] w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              value={projectData.description}
-              onChange={(e) =>
-                setProjectData({ ...projectData, description: e.target.value })
-              }
-              disabled={loading}
-            />
-          </div>
+        {/* 🟢 Rounded Badges with Cross Deselect Icons */}
+        {projectData.members.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-3 pl-1">
+            {projectData.members.map((memberId) => {
+              const member = teamMembers.find((m) => m._id === memberId);
+              if (!member) return null;
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-zinc-500 pl-1">
-                Billing Contract Type
-              </label>
-              <select
-                value={projectData.billingType}
-                onChange={(e) =>
-                  setProjectData({
-                    ...projectData,
-                    billingType: e.target.value,
-                  })
-                }
-                disabled={loading}
-                className="flex h-10 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <option value="TIME_AND_MATERIALS">Time & Materials</option>
-                <option value="FIXED_PRICE">Fixed Price</option>
-              </select>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-zinc-500 pl-1">
-                Blended Rate ($/hr)
-              </label>
-              <Input
-                type="number"
-                min="0"
-                required
-                className="border-zinc-200 h-10"
-                placeholder="100"
-                value={projectData.blendedRate}
-                onChange={(e) =>
-                  setProjectData({
-                    ...projectData,
-                    blendedRate: e.target.value,
-                  })
-                }
-                disabled={loading}
-              />
-            </div>
-          </div>
-
-          {/* Member Selection List (Desktop-optimized scroll box) */}
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-zinc-500 pl-1">
-              Assign Team Members (Selected: {projectData.members.length})
-            </label>
-            <div className="border border-zinc-200 rounded-lg max-h-[140px] overflow-y-auto p-3 bg-zinc-50/50 space-y-2">
-              {teamMembers.length === 0 ? (
-                <p className="text-xs text-zinc-400 text-center py-4">
-                  No employees provisioned yet.
-                </p>
-              ) : (
-                teamMembers.map((member) => (
-                  <label
-                    key={member._id}
-                    className="flex items-center gap-2.5 cursor-pointer text-sm font-medium text-zinc-700 hover:text-zinc-900"
+              return (
+                <Badge
+                  key={member._id}
+                  variant="secondary"
+                  className="pl-2.5 pr-1.5 py-1 text-xs flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 transition"
+                >
+                  <span>{member.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleMemberToggle(member._id)}
+                    className="rounded-full hover:bg-zinc-200 p-0.5 text-zinc-400 hover:text-zinc-900 transition-colors"
+                    title="Remove member"
                   >
-                    <input
-                      type="checkbox"
-                      checked={projectData.members.includes(member._id)}
-                      onChange={() => handleMemberCheck(member._id)}
-                      disabled={loading}
-                      className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 h-3.5 w-3.5"
-                    />
-                    <span>{member.name}</span>
-                    <span className="text-[9px] uppercase font-bold px-1.5 bg-white border border-zinc-200 rounded text-zinc-400">
-                      {member.role.replace("_", " ")}
-                    </span>
-                  </label>
-                ))
-              )}
-            </div>
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              );
+            })}
           </div>
+        )}
+      </div>
 
-          <Button
-            type="submit"
-            className="w-full flex items-center justify-center gap-2 bg-zinc-900 text-white hover:bg-zinc-800 transition"
-            disabled={loading}
-          >
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <>
-                <Plus className="h-4 w-4" /> Create Project
-              </>
-            )}
-          </Button>
-        </form>
-      </TabsContent>
-
-      {/* TAB 2: CREATE SPRINT */}
-      <TabsContent value="sprint">
-        <form onSubmit={handleSprintSubmit} className="space-y-4">
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-zinc-500 pl-1">
-              Select Project
-            </label>
-            <select
-              value={sprintData.projectId}
-              onChange={(e) =>
-                setSprintData({ ...sprintData, projectId: e.target.value })
-              }
-              required
-              disabled={loading}
-              className="flex h-10 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <option value="">-- Choose Project --</option>
-              {projects.map((proj) => (
-                <option key={proj._id} value={proj._id}>
-                  {proj.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-zinc-500 pl-1">
-              Sprint Name
-            </label>
-            <div className="relative">
-              <FolderKanban className="absolute left-3 top-3 h-4 w-4 text-zinc-400" />
-              <Input
-                placeholder="Sprint 1 - Initial DB Schema"
-                required
-                className="pl-9 border-zinc-200"
-                value={sprintData.name}
-                onChange={(e) =>
-                  setSprintData({ ...sprintData, name: e.target.value })
-                }
-                disabled={loading}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-zinc-500 pl-1 flex items-center gap-1">
-                <Calendar className="h-3 w-3" /> Start Date
-              </label>
-              <Input
-                type="date"
-                required
-                className="border-zinc-200 h-10"
-                value={sprintData.startDate}
-                onChange={(e) =>
-                  setSprintData({ ...sprintData, startDate: e.target.value })
-                }
-                disabled={loading}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-zinc-500 pl-1 flex items-center gap-1">
-                <Calendar className="h-3 w-3" /> End Date
-              </label>
-              <Input
-                type="date"
-                required
-                className="border-zinc-200 h-10"
-                value={sprintData.endDate}
-                onChange={(e) =>
-                  setSprintData({ ...sprintData, endDate: e.target.value })
-                }
-                disabled={loading}
-              />
-            </div>
-          </div>
-
-          <Button
-            type="submit"
-            className="w-full flex items-center justify-center gap-2 bg-zinc-900 text-white hover:bg-zinc-800 transition"
-            disabled={loading}
-          >
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <>
-                <Plus className="h-4 w-4" /> Launch Sprint
-              </>
-            )}
-          </Button>
-        </form>
-      </TabsContent>
-    </Tabs>
+      <Button
+        type="submit"
+        className="w-full flex items-center justify-center gap-2 bg-zinc-900 text-white hover:bg-zinc-800 transition mt-4"
+        disabled={loading}
+      >
+        {loading ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <>
+            <Plus className="h-4 w-4" /> Create Project
+          </>
+        )}
+      </Button>
+    </form>
   );
 }

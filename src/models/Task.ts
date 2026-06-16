@@ -2,12 +2,13 @@ import mongoose, { Schema, Document } from "mongoose";
 
 export interface ITask extends Document {
   orgId: mongoose.Types.ObjectId;
-  sprintId: mongoose.Types.ObjectId; // Denormalized for zero-join Kanban queries
+  sprintId: mongoose.Types.ObjectId;
   storyId: mongoose.Types.ObjectId;
   assignedTo: mongoose.Types.ObjectId;
   title: string;
   description?: string;
   status: "TO_DO" | "IN_PROGRESS" | "REVIEW" | "DONE";
+  type: "BUG" | "TASK" | "CHANGE_REQUEST"; // 🟢 Added Type definitions
   estimatedHours: number;
   createdBy: mongoose.Types.ObjectId;
   completionDate?: Date | null;
@@ -27,7 +28,7 @@ const TaskSchema: Schema = new Schema<ITask>(
       type: Schema.Types.ObjectId,
       ref: "Sprint",
       required: [true, "Task must map to a sprint"],
-      index: true, // Crucial index for parallel Kanban Board loads
+      index: true,
     },
     storyId: {
       type: Schema.Types.ObjectId,
@@ -55,11 +56,16 @@ const TaskSchema: Schema = new Schema<ITask>(
       enum: ["TO_DO", "IN_PROGRESS", "REVIEW", "DONE"],
       default: "TO_DO",
     },
+    type: {
+      type: String,
+      enum: ["BUG", "TASK", "CHANGE_REQUEST"], // 🟢 Schema Enum constraint
+      default: "TASK",
+    },
     estimatedHours: {
       type: Number,
       required: [true, "Estimated hours are required"],
       min: [1, "Estimated hours must be at least 1 hour"],
-      max: [16, "Tasks cannot exceed a 16-hour single scope allocation limit"], // Zod safety constraint matching
+      max: [16, "Tasks cannot exceed a 16-hour single scope allocation limit"],
     },
     createdBy: {
       type: Schema.Types.ObjectId,
@@ -73,7 +79,7 @@ const TaskSchema: Schema = new Schema<ITask>(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 export const Task =

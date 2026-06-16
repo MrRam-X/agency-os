@@ -8,4 +8,5 @@ export const taskSchema = z.object({
     .number()
     .min(1, "Task estimate must be at least 1 hour")
     .max(16, "Individual developer tasks are capped at a 16-hour single estimation limit"),
+  type: z.enum(["BUG", "TASK", "CHANGE_REQUEST"]).default("TASK"), // 🟢 Added Zod enum validation
 });
