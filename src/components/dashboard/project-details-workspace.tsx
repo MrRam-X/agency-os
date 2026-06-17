@@ -8,16 +8,13 @@ import {
   Loader2,
   FolderKanban,
   Calendar,
-  ChevronRight,
   X,
   Search,
-  Edit3,
   Trash2,
   AlertTriangle,
   ExternalLink,
   Users,
   User,
-  Clock,
   ChevronDown,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -43,12 +40,11 @@ import {
 import {
   createUserStory,
   deleteUserStory,
-  updateUserStory,
   createSprintWithStories,
   deleteSprint,
 } from "@/actions/project-actions";
+import { StoryRowActions } from "@/components/dashboard/story-row-actions";
 
-// Types matching serialized mongoose objects [12]
 interface SerializedUserStory {
   _id: string;
   projectId: string;
@@ -115,15 +111,6 @@ export function ProjectDetailsWorkspace({
   });
 
   // Story Edits / Deletes
-  const [storyEditId, setStoryEditOpen] = useState<string | null>(null);
-  const [storyDeleteId, setStoryDeleteOpen] = useState<string | null>(null);
-  const [editStoryData, setEditStoryData] = useState({
-    title: "",
-    description: "",
-    plannedHours: "",
-  });
-
-  // Sprint Deletes
   const [sprintDeleteId, setSprintDeleteOpen] = useState<string | null>(null);
 
   useEffect(() => {
@@ -143,7 +130,7 @@ export function ProjectDetailsWorkspace({
     team.find((t) => t._id === project.createdBy)?.name || "Unknown Manager";
   const assignedTeam = team.filter((t) => project.members.includes(t._id));
 
-  // Separate Stories into Backlog and Planned Sprints
+  // Separate Stories
   const backlogStories = stories.filter(
     (story) => story.sprintId === null && story.status === "BACKLOG",
   );
@@ -177,6 +164,25 @@ export function ProjectDetailsWorkspace({
 
   const handleSprintSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // 🛡️ Front-End Manual Typing Validation Fallback [13, 20]
+    const start = new Date(sprintForm.startDate);
+    const end = new Date(sprintForm.endDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (start < today) {
+      toast.error("Validation Error: Start Date cannot be set in the past.");
+      return;
+    }
+
+    if (end <= start) {
+      toast.error(
+        "Validation Error: End Date must be set chronologically after the Start Date.",
+      );
+      return;
+    }
+
     setLoading(true);
     const result = await createSprintWithStories(
       project._id,
@@ -198,33 +204,6 @@ export function ProjectDetailsWorkspace({
     }
   };
 
-  const handleEditStorySubmit = async (e: React.FormEvent, id: string) => {
-    e.preventDefault();
-    setLoading(true);
-    const result = await updateUserStory(project._id, id, editStoryData);
-    setLoading(false);
-
-    if (result.error) {
-      toast.error(result.error);
-    } else if (result.success) {
-      toast.success("User Story updated successfully!");
-      setStoryEditOpen(null);
-    }
-  };
-
-  const handleDeleteStory = async (id: string) => {
-    setLoading(true);
-    const result = await deleteUserStory(project._id, id);
-    setLoading(false);
-
-    if (result.error) {
-      toast.error(result.error);
-    } else if (result.success) {
-      toast.success("Story and associated development tasks deleted.");
-      setStoryDeleteOpen(null);
-    }
-  };
-
   const handleDeleteSprint = async (id: string) => {
     setLoading(true);
     const result = await deleteSprint(project._id, id);
@@ -237,6 +216,9 @@ export function ProjectDetailsWorkspace({
       setSprintDeleteOpen(null);
     }
   };
+
+  // Get current date string formatted as YYYY-MM-DD for date-picker restrictions
+  const todayInputString = new Date().toISOString().split("T")[0];
 
   return (
     <div className="space-y-8">
@@ -270,7 +252,7 @@ export function ProjectDetailsWorkspace({
 
       {/* Main Split-Column Workspace */}
       <div className="grid gap-8 lg:grid-cols-3 items-start">
-        {/* LEFT COLUMN: DIRECTORY TABS (60% width) */}
+        {/* LEFT COLUMN */}
         <div className="lg:col-span-2">
           <Tabs
             value={activeTab}
@@ -306,7 +288,7 @@ export function ProjectDetailsWorkspace({
                 </CardHeader>
                 <CardContent className="space-y-3 p-6 pt-0">
                   {backlogStories.length === 0 ? (
-                    <p className="text-xs text-zinc-400 italic text-center py-6">
+                    <p className="text-xs text-zinc-400 italic text-center py-6 font-medium">
                       The product backlog is completely empty.
                     </p>
                   ) : (
@@ -332,176 +314,11 @@ export function ProjectDetailsWorkspace({
                           </div>
                         </div>
 
-                        {/* Story CRUD Controls */}
-                        <div className="flex items-center gap-1 shrink-0">
-                          {/* EDIT DIALOG */}
-                          <Dialog
-                            open={storyEditId === story._id}
-                            onOpenChange={(open) => {
-                              if (open) {
-                                setStoryEditOpen(story._id);
-                                setEditStoryData({
-                                  title: story.title,
-                                  description: story.description || "",
-                                  plannedHours: String(story.plannedHours),
-                                });
-                              } else {
-                                setStoryEditOpen(null);
-                              }
-                            }}
-                          >
-                            <DialogTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-zinc-400 hover:text-zinc-950"
-                              >
-                                <Edit3 className="h-4 w-4" />
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent className="sm:max-w-[420px]">
-                              <DialogHeader>
-                                <DialogTitle>Edit User Story</DialogTitle>
-                                <DialogDescription>
-                                  Adjust backlog specifications and hours.
-                                </DialogDescription>
-                              </DialogHeader>
-                              <form
-                                onSubmit={(e) =>
-                                  handleEditStorySubmit(e, story._id)
-                                }
-                                className="space-y-4 py-2"
-                              >
-                                <div className="space-y-1">
-                                  <label className="text-xs font-semibold text-zinc-500">
-                                    Story Title
-                                  </label>
-                                  <Input
-                                    required
-                                    value={editStoryData.title}
-                                    onChange={(e) =>
-                                      setEditStoryData({
-                                        ...editStoryData,
-                                        title: e.target.value,
-                                      })
-                                    }
-                                    disabled={loading}
-                                  />
-                                </div>
-                                <div className="space-y-1">
-                                  <label className="text-xs font-semibold text-zinc-500">
-                                    Description
-                                  </label>
-                                  <textarea
-                                    className="flex min-h-[60px] w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
-                                    value={editStoryData.description}
-                                    onChange={(e) =>
-                                      setEditStoryData({
-                                        ...editStoryData,
-                                        description: e.target.value,
-                                      })
-                                    }
-                                    disabled={loading}
-                                  />
-                                </div>
-                                <div className="space-y-1">
-                                  <label className="text-xs font-semibold text-zinc-500">
-                                    Planned Hours
-                                  </label>
-                                  <Input
-                                    type="number"
-                                    min="1"
-                                    required
-                                    value={editStoryData.plannedHours}
-                                    onChange={(e) =>
-                                      setEditStoryData({
-                                        ...editStoryData,
-                                        plannedHours: e.target.value,
-                                      })
-                                    }
-                                    disabled={loading}
-                                  />
-                                </div>
-                                <DialogFooter className="pt-4">
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    onClick={() => setStoryEditOpen(null)}
-                                    disabled={loading}
-                                  >
-                                    Cancel
-                                  </Button>
-                                  <Button
-                                    type="submit"
-                                    className="bg-zinc-900 text-white"
-                                    disabled={loading}
-                                  >
-                                    {loading ? (
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      "Save Story"
-                                    )}
-                                  </Button>
-                                </DialogFooter>
-                              </form>
-                            </DialogContent>
-                          </Dialog>
-
-                          {/* DELETE DIALOG */}
-                          <Dialog
-                            open={storyDeleteId === story._id}
-                            onOpenChange={(open) =>
-                              setStoryDeleteOpen(open ? story._id : null)
-                            }
-                          >
-                            <DialogTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-zinc-400 hover:text-red-600 hover:bg-red-50"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent className="sm:max-w-[400px]">
-                              <DialogHeader>
-                                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100 text-red-600 mb-2">
-                                  <AlertTriangle className="h-6 w-6" />
-                                </div>
-                                <DialogTitle className="text-center">
-                                  Are you absolutely sure?
-                                </DialogTitle>
-                                <DialogDescription className="text-center text-sm">
-                                  Deleting this story will delete all nested
-                                  development tasks and ledger timesheet entries
-                                  [21].
-                                </DialogDescription>
-                              </DialogHeader>
-                              <DialogFooter className="flex gap-2 sm:justify-center pt-2">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  onClick={() => setStoryDeleteOpen(null)}
-                                  disabled={loading}
-                                >
-                                  Cancel
-                                </Button>
-                                <Button
-                                  type="button"
-                                  className="bg-red-600 text-white hover:bg-red-700"
-                                  onClick={() => handleDeleteStory(story._id)}
-                                  disabled={loading}
-                                >
-                                  {loading ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    "Delete Story"
-                                  )}
-                                </Button>
-                              </DialogFooter>
-                            </DialogContent>
-                          </Dialog>
-                        </div>
+                        {/* Reusable Story CRUD Actions */}
+                        <StoryRowActions
+                          projectId={project._id}
+                          story={story}
+                        />
                       </div>
                     ))
                   )}
@@ -522,7 +339,7 @@ export function ProjectDetailsWorkspace({
                 </CardHeader>
                 <CardContent className="space-y-3 p-6 pt-0">
                   {sprints.length === 0 ? (
-                    <p className="text-xs text-zinc-400 italic text-center py-6">
+                    <p className="text-xs text-zinc-400 italic text-center py-6 font-medium">
                       No sprints launched under this project yet.
                     </p>
                   ) : (
@@ -639,7 +456,7 @@ export function ProjectDetailsWorkspace({
           </Tabs>
         </div>
 
-        {/* RIGHT COLUMN: DYNAMIC CONTROL PANEL (40% width) */}
+        {/* RIGHT COLUMN: DYNAMIC CONTROL PANEL */}
         <div>
           <Card className="border-zinc-200 bg-white shadow-sm">
             <CardHeader>
@@ -653,7 +470,6 @@ export function ProjectDetailsWorkspace({
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {/* DYNAMIC FORMS BASED ON ACTIVE TAB STATE */}
               {activeTab === "backlog" ? (
                 <form onSubmit={handleStorySubmit} className="space-y-4">
                   <div className="space-y-1">
@@ -739,24 +555,26 @@ export function ProjectDetailsWorkspace({
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
                       <label className="text-xs font-semibold text-zinc-500 flex items-center gap-1">
-                        <Calendar className="h-3 w-3" /> Start Date
+                        <Calendar className="h-3.5 w-3.5" /> Start Date
                       </label>
                       <Input
                         type="date"
                         required
+                        min={todayInputString} // 🟢 RESTRICTION: Disable past dates from current date
                         value={sprintForm.startDate}
                         onChange={(e) =>
                           setSprintForm({
                             ...sprintForm,
                             startDate: e.target.value,
+                            endDate: "",
                           })
-                        }
+                        } // Clear end date on start date change
                         disabled={loading}
                       />
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs font-semibold text-zinc-500 flex items-center gap-1">
-                        <Calendar className="h-3 w-3" /> End Date
+                        <Calendar className="h-3.5 w-3.5" /> End Date
                       </label>
                       <Input
                         type="date"
@@ -768,12 +586,22 @@ export function ProjectDetailsWorkspace({
                             endDate: e.target.value,
                           })
                         }
-                        disabled={loading}
+                        disabled={loading || !sprintForm.startDate} // 🟢 RESTRICTION: Disable until Start Date is selected
+                        min={
+                          sprintForm.startDate
+                            ? new Date(
+                                new Date(sprintForm.startDate).getTime() +
+                                  86400000,
+                              )
+                                .toISOString()
+                                .split("T")[0]
+                            : undefined
+                        } // 🟢 Enforce end > start
                       />
                     </div>
                   </div>
 
-                  {/* 🟢 Searchable Combobox for selecting Backlog Stories to pull into this Sprint */}
+                  {/* Searchable Combobox */}
                   <div className="space-y-2 relative" ref={dropdownRef}>
                     <label className="text-xs font-semibold text-zinc-500 pl-1">
                       Ingest Stories into Sprint (Selected:{" "}
@@ -839,7 +667,6 @@ export function ProjectDetailsWorkspace({
                       </div>
                     )}
 
-                    {/* Render Selected Story Badge Tags with cross-reversal trigger */}
                     {sprintForm.selectedStories.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 mt-3 pl-1">
                         {sprintForm.selectedStories.map((storyId) => {

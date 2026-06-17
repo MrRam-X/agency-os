@@ -162,14 +162,18 @@ export default async function SprintBoardPage({ params }: PageProps) {
         </div>
 
         <div className="flex items-center gap-3">
-          <SprintLifecycleButtons
-            projectId={serializedSprint.projectId}
-            sprintId={serializedSprint._id}
-            sprintStatus={serializedSprint.status}
-            userRole={session.user.role}
+          {/* Render dynamic sprint start/complete/edit buttons */}
+          <SprintLifecycleButtons 
+            projectId={serializedSprint.projectId} 
+            sprintId={serializedSprint._id} 
+            sprintStatus={serializedSprint.status} 
+            sprintName={serializedSprint.name}
+            startDate={serializedSprint.startDate}
+            endDate={serializedSprint.endDate}
+            userRole={session.user.role} 
           />
 
-          <SprintBacklogDrawer
+          <SprintBacklogDrawer 
             projectId={serializedSprint.projectId}
             sprintId={serializedSprint._id}
             backlogStories={serializedBacklog}
