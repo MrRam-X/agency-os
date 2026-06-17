@@ -197,7 +197,11 @@ export async function createUserStory(projectId: string, rawData: unknown) {
   }
 }
 
-export async function deleteUserStory(projectId: string, storyId: string) {
+export async function deleteUserStory(
+  projectId: string,
+  storyId: string,
+  sprintId?: string | null,
+) {
   try {
     const session = await getServerSession(authOptions);
     if (!session || !session.user) return { error: "Authentication required." };
@@ -211,14 +215,20 @@ export async function deleteUserStory(projectId: string, storyId: string) {
 
     await connectDB();
 
-    // 🛡️ Cascading Deletion: Query tasks associated with this story to purge timesheets [21]
     const taskIds = await Task.find({ storyId }).distinct("_id");
 
     await UserStory.deleteOne({ _id: storyId });
     await Task.deleteMany({ storyId });
     await Ledger.deleteMany({ taskId: { $in: taskIds } });
 
+    // 🟢 Dynamic Revalidation: Refreshes the project list
     revalidatePath(`/dashboard/projects/${projectId}`);
+
+    // 🟢 Board Revalidation: Refreshes the active board instantly if deleted from there [1]
+    if (sprintId) {
+      revalidatePath(`/dashboard/board/${sprintId}`);
+    }
+
     return { success: true };
   } catch (error) {
     console.error("Cascading story deletion error:", error);
@@ -232,6 +242,7 @@ export async function updateUserStory(
   projectId: string,
   storyId: string,
   rawData: unknown,
+  sprintId?: string | null,
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -261,7 +272,12 @@ export async function updateUserStory(
       { $set: { title, description, plannedHours } },
     );
 
+    // 🟢 Dynamic Revalidations [1]
     revalidatePath(`/dashboard/projects/${projectId}`);
+    if (sprintId) {
+      revalidatePath(`/dashboard/board/${sprintId}`);
+    }
+
     return { success: true };
   } catch (error) {
     console.error("Update story error:", error);
@@ -508,14 +524,21 @@ export async function completeSprint(projectId: string, sprintId: string) {
   }
 }
 
-export async function pullStoryIntoSprint(projectId: string, storyId: string, sprintId: string) {
+export async function pullStoryIntoSprint(
+  projectId: string,
+  storyId: string,
+  sprintId: string,
+) {
   try {
     const session = await getServerSession(authOptions);
     if (!session || !session.user) return { error: "Authentication required." };
 
     const { role } = session.user;
     if (role !== "OWNER" && role !== "MANAGER" && role !== "TEAM_LEAD") {
-      return { error: "Unauthorized: Only Managers and Leads can manage sprint backlogs." };
+      return {
+        error:
+          "Unauthorized: Only Managers and Leads can manage sprint backlogs.",
+      };
     }
 
     await connectDB();
@@ -523,7 +546,7 @@ export async function pullStoryIntoSprint(projectId: string, storyId: string, sp
     // Update story to link to this sprint and shift its status to CONFIRMED
     await UserStory.updateOne(
       { _id: storyId },
-      { $set: { sprintId, status: "CONFIRMED" } }
+      { $set: { sprintId, status: "CONFIRMED" } },
     );
 
     revalidatePath(`/dashboard/board/${sprintId}`);

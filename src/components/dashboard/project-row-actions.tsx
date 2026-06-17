@@ -311,7 +311,7 @@ export function SprintRowActions({ sprint }: SprintActionsProps) {
     e.preventDefault();
     setLoading(true);
 
-    const result = await updateSprint(sprint._id, formData);
+    const result = await updateSprint(sprint.projectId, sprint._id, formData);
     setLoading(false);
 
     if (result.error) {
@@ -324,7 +324,7 @@ export function SprintRowActions({ sprint }: SprintActionsProps) {
 
   const handleDeleteSubmit = async () => {
     setLoading(true);
-    const result = await deleteSprint(sprint._id);
+    const result = await deleteSprint(sprint.projectId, sprint._id);
     setLoading(false);
 
     if (result.error) {

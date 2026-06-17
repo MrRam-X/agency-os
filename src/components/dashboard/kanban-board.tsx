@@ -3,15 +3,13 @@
 import { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { RootState } from "@/store/store";
-import { initializeBoard, BoardTask, TaskType } from "@/store/slices/boardSlice";
-import { toast } from "sonner";
 import {
-  User,
-  Edit3,
-  Trash2,
-  Loader2,
-  AlertTriangle,
-} from "lucide-react";
+  initializeBoard,
+  BoardTask,
+  TaskType,
+} from "@/store/slices/boardSlice";
+import { toast } from "sonner";
+import { User, Edit3, Trash2, Loader2, AlertTriangle } from "lucide-react";
 import { updateTask, deleteTask } from "@/actions/task-actions";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +26,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { CreateTaskDialog } from "@/components/dashboard/create-task-dialog";
 import { StoryEstimationBar } from "@/components/dashboard/story-estimation-bar";
+import { StoryRowActions } from "@/components/dashboard/story-row-actions";
 
 export interface SerializedUserStory {
   _id: string;
@@ -97,6 +96,7 @@ export function KanbanBoard({
                     {story.description || "No description provided."}
                   </p>
                 </div>
+                {/* Render Budget Badge, Story CRUD, and Add Task Modal side-by-side */}
                 <div className="flex items-center gap-2">
                   <Badge
                     variant="secondary"
@@ -105,7 +105,14 @@ export function KanbanBoard({
                     Budget: {story.plannedHours} hrs
                   </Badge>
 
-                  {/* Create Task Dialog */}
+                  {/* 🟢 Render Client Story Actions (Edit & Delete on Board) */}
+                  <StoryRowActions
+                    projectId={story.projectId}
+                    sprintId={sprintId}
+                    story={story}
+                  />
+
+                  {/* Render Client Task Dialog Modal */}
                   <CreateTaskDialog
                     storyId={story._id}
                     sprintId={sprintId}
@@ -114,7 +121,7 @@ export function KanbanBoard({
                 </div>
               </div>
 
-              {/* Real-Time Estimation Progress Bar */}
+              {/* Render Client Estimation Warning Progress Bar */}
               <StoryEstimationBar
                 storyId={story._id}
                 plannedHours={story.plannedHours}
@@ -343,7 +350,10 @@ function TaskCardActions({
                 <select
                   value={formData.type}
                   onChange={(e) =>
-                    setFormData({ ...formData, type: e.target.value as TaskType })
+                    setFormData({
+                      ...formData,
+                      type: e.target.value as TaskType,
+                    })
                   }
                   required
                   disabled={loading}
