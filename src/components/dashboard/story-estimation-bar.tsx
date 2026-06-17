@@ -1,6 +1,6 @@
 "use client";
 
-import { useSelector } from "react-redux";
+import { useSelector, shallowEqual } from "react-redux"; // 🟢 Imported shallowEqual
 import { RootState } from "@/store/store";
 import { AlertTriangle, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -11,9 +11,11 @@ interface StoryEstimationBarProps {
 }
 
 export function StoryEstimationBar({ storyId, plannedHours }: StoryEstimationBarProps) {
-  // 1. Fetch current draft tasks belonging to this User Story from Redux
-  const tasks = useSelector((state: RootState) =>
-    state.board.currentTasks.filter((task) => task.storyId === storyId)
+  // 1. Fetch current draft tasks belonging to this User Story using shallowEqual to optimize rendering
+  const tasks = useSelector(
+    (state: RootState) =>
+      state.board.currentTasks.filter((task) => task.storyId === storyId),
+    shallowEqual // 🟢 Prevents unnecessary re-renders by doing element-level array comparison
   );
 
   // 2. Calculate sum of estimated hours
@@ -29,7 +31,7 @@ export function StoryEstimationBar({ storyId, plannedHours }: StoryEstimationBar
         {/* Status Indicators */}
         {isOverBudget ? (
           <span className="flex items-center gap-1 text-amber-600 animate-pulse">
-            <AlertTriangle className="h-3.5 w-3.5" /> Budget Overrun Risk (+{totalEstimated - plannedHours} &apos;s hrs) {/* 🟢 Strictly using escaped apostrophe */}
+            <AlertTriangle className="h-3.5 w-3.5" /> Budget Overrun Risk (+{totalEstimated - plannedHours} &apos;s hrs)
           </span>
         ) : (
           <span className="flex items-center gap-1 text-zinc-500">
@@ -43,7 +45,7 @@ export function StoryEstimationBar({ storyId, plannedHours }: StoryEstimationBar
         </span>
       </div>
 
-      {/* 🟢 4. Custom, 100% Type-Safe Progress Bar (Replaces Shadcn's component to prevent compilation errors) */}
+      {/* 4. Custom, 100% Type-Safe Progress Bar */}
       <div className="h-1.5 w-full bg-zinc-100 border border-zinc-200/50 rounded-full overflow-hidden">
         <div 
           className={cn(
