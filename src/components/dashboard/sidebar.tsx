@@ -29,7 +29,6 @@ export function Sidebar({ userRole, userId }: SidebarProps) {
   const dispatch = useDispatch();
   const sidebarOpen = useSelector((state: RootState) => state.ui.sidebarOpen);
 
-  // 1. Define all navigation items with strict role permissions
   const navItems = [
     {
       name: "Dashboard",
@@ -41,25 +40,25 @@ export function Sidebar({ userRole, userId }: SidebarProps) {
       name: "Projects",
       href: "/dashboard/projects",
       icon: FolderKanban,
-      roles: ["OWNER", "MANAGER", "TEAM_LEAD"], // Blocked for Dev / Tester
+      roles: ["OWNER", "MANAGER", "TEAM_LEAD"],
     },
     {
       name: "Kanban Board",
-      href: "/dashboard/board/active", // Redirects to active sprint or default board view
+      href: "/dashboard/board/active",
       icon: FolderKanban,
-      roles: ["MANAGER", "TEAM_LEAD", "DEVELOPER", "TESTER"], // Focus on execution roles
+      roles: ["MANAGER", "TEAM_LEAD", "DEVELOPER", "TESTER"],
     },
     {
       name: "Daily Logs",
       href: "/dashboard/daily-logs",
       icon: Clock,
-      roles: ["DEVELOPER", "TESTER", "TEAM_LEAD", "MANAGER"], // Task logging view
+      roles: ["DEVELOPER", "TESTER", "TEAM_LEAD", "MANAGER"],
     },
     {
       name: "Sprint Ledger",
       href: "/dashboard/ledger",
       icon: CreditCard,
-      roles: ["OWNER", "MANAGER", "TEAM_LEAD"], // Billing & override logs
+      roles: ["OWNER", "MANAGER", "TEAM_LEAD"],
     },
     {
       name: "My Profile",
@@ -69,7 +68,6 @@ export function Sidebar({ userRole, userId }: SidebarProps) {
     },
   ];
 
-  // Filter items matching the user's role
   const allowedNavItems = navItems.filter((item) =>
     item.roles.includes(userRole),
   );
@@ -81,7 +79,6 @@ export function Sidebar({ userRole, userId }: SidebarProps) {
         sidebarOpen ? "w-64" : "w-16",
       )}
     >
-      {/* Sidebar Header: Logo & Branding */}
       <div className="flex h-16 items-center justify-between px-4 border-b border-zinc-200 shrink-0">
         <div className="flex items-center gap-2.5 overflow-hidden">
           <Image
@@ -98,7 +95,6 @@ export function Sidebar({ userRole, userId }: SidebarProps) {
           )}
         </div>
 
-        {/* Collapse Toggle Button */}
         {sidebarOpen && (
           <Button
             variant="ghost"
@@ -111,11 +107,23 @@ export function Sidebar({ userRole, userId }: SidebarProps) {
         )}
       </div>
 
-      {/* Navigation Links */}
       <nav className="flex-grow py-4 px-2 space-y-1 overflow-y-auto">
         {allowedNavItems.map((item) => {
-          const isActive =
-            pathname === item.href || pathname.startsWith(`${item.href}/`);
+          // 🟢 RESOLVED: Strict route checking algorithm to prevent double-active UI highlights [23]
+          let isActive = false;
+
+          if (item.name === "Kanban Board") {
+            // 🟢 RESOLVED: Keep "Kanban Board" active across any dynamic board route
+            isActive = pathname.startsWith("/dashboard/board");
+          } else if (item.href === "/dashboard") {
+            // 🟢 RESOLVED: Keep "Dashboard" active ONLY if the path is exactly /dashboard [23]
+            isActive = pathname === "/dashboard";
+          } else {
+            // Standard hierarchical check for sub-routes (e.g. /dashboard/projects/[id])
+            isActive =
+              pathname === item.href || pathname.startsWith(`${item.href}/`);
+          }
+
           const Icon = item.icon;
 
           return (
@@ -135,7 +143,6 @@ export function Sidebar({ userRole, userId }: SidebarProps) {
                   {item.name}
                 </span>
               ) : (
-                // Compact tooltip for collapsed sidebar state
                 <span className="absolute left-14 hidden group-hover:block bg-zinc-900 text-white text-xs font-semibold px-2 py-1 rounded shadow-md whitespace-nowrap z-50">
                   {item.name}
                 </span>
@@ -145,7 +152,6 @@ export function Sidebar({ userRole, userId }: SidebarProps) {
         })}
       </nav>
 
-      {/* Sidebar Footer (Collapse Toggle indicator when compact) */}
       {!sidebarOpen && (
         <div className="p-2 border-t border-zinc-200 flex justify-center shrink-0">
           <Button
