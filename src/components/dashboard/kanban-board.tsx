@@ -6,11 +6,22 @@ import { RootState } from "@/store/store";
 import {
   initializeBoard,
   BoardTask,
+  updateTaskStatusLocal,
+  discardBoardChanges,
+  commitBoardChangesSuccess,
   TaskType,
-} from "@/store/slices/boardSlice";
+} from "@/store/slices/boardSlice"; // 🟢 Imported TaskType
 import { toast } from "sonner";
-import { User, Edit3, Trash2, Loader2, AlertTriangle } from "lucide-react";
-import { updateTask, deleteTask } from "@/actions/task-actions";
+import {
+  User,
+  Edit3,
+  Trash2,
+  Loader2,
+  AlertTriangle,
+  Check,
+  ShieldAlert,
+} from "lucide-react";
+import { commitBoardChanges, TaskStatusChange } from "@/actions/task-actions";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +38,7 @@ import { Input } from "@/components/ui/input";
 import { CreateTaskDialog } from "@/components/dashboard/create-task-dialog";
 import { StoryEstimationBar } from "@/components/dashboard/story-estimation-bar";
 import { StoryRowActions } from "@/components/dashboard/story-row-actions";
+import { updateTask, deleteTask } from "@/actions/task-actions";
 
 export interface SerializedUserStory {
   _id: string;
@@ -61,21 +73,99 @@ export function KanbanBoard({
   team,
 }: KanbanBoardProps) {
   const dispatch = useDispatch();
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [draggedStoryId, setDraggedStoryId] = useState<string | null>(null);
 
-  // 🟢 Read dynamic, real-time tasks from our Redux Store
   const currentTasks = useSelector(
     (state: RootState) => state.board.currentTasks,
   );
+  const originalTasks = useSelector(
+    (state: RootState) => state.board.originalTasks,
+  );
+  const isDirty = useSelector((state: RootState) => state.board.isDirty);
 
-  // Hydrate Redux Store with Server-side data on mount and on server revalidations [2]
   useEffect(() => {
     dispatch(initializeBoard(initialTasks));
   }, [initialTasks, dispatch]);
 
+  const handleDragStart = (
+    e: React.DragEvent,
+    taskId: string,
+    storyId: string,
+  ) => {
+    e.dataTransfer.setData("text/plain", taskId);
+    setDraggedStoryId(storyId);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (
+    e: React.DragEvent,
+    colStatus: string,
+    storyId: string,
+  ) => {
+    e.preventDefault();
+    const taskId = e.dataTransfer.getData("text/plain");
+
+    if (draggedStoryId !== storyId) {
+      toast.error(
+        "Cross-Swimlane Restriction: Tasks cannot be re-assigned to different User Stories.",
+      );
+      setDraggedStoryId(null);
+      return;
+    }
+
+    // 🟢 RESOLVED: Changed 'status' to 'newStatus' to match our Redux payload type-checking perfectly
+    dispatch(
+      updateTaskStatusLocal({
+        taskId,
+        newStatus: colStatus as "TO_DO" | "IN_PROGRESS" | "REVIEW" | "DONE",
+      }),
+    );
+    setDraggedStoryId(null);
+  };
+
+  const handleCancelChanges = () => {
+    dispatch(discardBoardChanges());
+    toast.message("Board changes discarded.");
+  };
+
+  const handleSaveChanges = async () => {
+    setSaveLoading(true);
+
+    const changes: TaskStatusChange[] = currentTasks
+      .filter((task) => {
+        const original = originalTasks.find((o) => o._id === task._id);
+        return original ? original.status !== task.status : false;
+      })
+      .map((task) => ({
+        taskId: task._id,
+        status: task.status,
+      }));
+
+    try {
+      const result = await commitBoardChanges(sprintId, changes);
+
+      if (result.error) {
+        toast.error(result.error);
+      } else if (result.success) {
+        dispatch(commitBoardChangesSuccess());
+        toast.success(
+          "Board statuses committed and daily timesheet ledger updated.",
+        );
+      }
+    } catch (err) {
+      toast.error("An unexpected error occurred during bulk save.");
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {stories.map((story) => {
-        // Filter tasks belonging to this User Story from the hydrated Redux store
         const storyTasks = currentTasks.filter(
           (task) => task.storyId === story._id,
         );
@@ -96,7 +186,6 @@ export function KanbanBoard({
                     {story.description || "No description provided."}
                   </p>
                 </div>
-                {/* Render Budget Badge, Story CRUD, and Add Task Modal side-by-side */}
                 <div className="flex items-center gap-2">
                   <Badge
                     variant="secondary"
@@ -105,14 +194,12 @@ export function KanbanBoard({
                     Budget: {story.plannedHours} hrs
                   </Badge>
 
-                  {/* 🟢 Render Client Story Actions (Edit & Delete on Board) */}
                   <StoryRowActions
                     projectId={story.projectId}
                     sprintId={sprintId}
                     story={story}
                   />
 
-                  {/* Render Client Task Dialog Modal */}
                   <CreateTaskDialog
                     storyId={story._id}
                     sprintId={sprintId}
@@ -121,7 +208,6 @@ export function KanbanBoard({
                 </div>
               </div>
 
-              {/* Render Client Estimation Warning Progress Bar */}
               <StoryEstimationBar
                 storyId={story._id}
                 plannedHours={story.plannedHours}
@@ -138,6 +224,8 @@ export function KanbanBoard({
                 return (
                   <div
                     key={colStatus}
+                    onDragOver={handleDragOver}
+                    onDrop={(e) => handleDrop(e, colStatus, story._id)}
                     className="bg-zinc-50/50 rounded-lg p-3 min-h-[140px] border border-zinc-200/40"
                   >
                     <div className="flex items-center justify-between mb-2">
@@ -159,9 +247,12 @@ export function KanbanBoard({
                         return (
                           <Card
                             key={task._id}
-                            className="border-zinc-200/80 bg-white p-3 shadow-xs hover:border-zinc-300 transition relative overflow-hidden"
+                            draggable
+                            onDragStart={(e) =>
+                              handleDragStart(e, task._id, story._id)
+                            }
+                            className="border-zinc-200/80 bg-white p-3 shadow-xs hover:border-zinc-300 transition relative overflow-hidden active:scale-95 cursor-grab"
                           >
-                            {/* Color indicator for Task Type with defensive optional chaining */}
                             <div
                               className={`absolute left-0 top-0 bottom-0 w-1 ${
                                 (task?.type || "") === "BUG"
@@ -177,7 +268,6 @@ export function KanbanBoard({
                                 {task.title}
                               </CardTitle>
 
-                              {/* 🟢 Interactive Task Actions (Edit & Delete) */}
                               <TaskCardActions
                                 task={task}
                                 teamMembers={team}
@@ -186,7 +276,6 @@ export function KanbanBoard({
                             </div>
 
                             <div className="flex flex-col gap-2 mt-2 pt-2 border-t border-zinc-100 pl-1.5 text-[10px] font-semibold text-zinc-400">
-                              {/* 🟢 Assigned Name Display (Resolves Glitch #1) */}
                               <div className="flex items-center gap-1 text-zinc-500">
                                 <User className="h-3 w-3 text-zinc-400" />{" "}
                                 Assigned:{" "}
@@ -216,11 +305,51 @@ export function KanbanBoard({
           </div>
         );
       })}
+
+      {/* Floating Save/Cancel Action Banner */}
+      {isDirty && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center justify-between gap-6 bg-zinc-950/95 text-white px-6 py-4 rounded-2xl border border-zinc-800 shadow-2xl backdrop-blur-md animate-in slide-in-from-bottom-5 duration-300 w-[95%] max-w-[560px]">
+          <div className="flex items-center gap-2.5">
+            <ShieldAlert className="h-5 w-5 text-amber-400 flex-shrink-0 animate-pulse" />
+            <p className="text-xs font-semibold text-zinc-300 leading-tight">
+              You have unsaved board changes. Click save to commit and update
+              today&apos;s billing logs [20].
+            </p>
+          </div>
+          <div className="flex items-center gap-2.5 shrink-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleCancelChanges}
+              disabled={saveLoading}
+              className="text-xs font-bold text-zinc-400 hover:text-white hover:bg-zinc-900 h-9 px-3"
+            >
+              Discard
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSaveChanges}
+              disabled={saveLoading}
+              className="bg-white text-zinc-950 hover:bg-zinc-200 text-xs font-bold h-9 px-4 flex items-center gap-1.5 shadow"
+            >
+              {saveLoading ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving...
+                </>
+              ) : (
+                <>
+                  Save Changes <Check className="h-3.5 w-3.5" />
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// --- 🟢 INNER COMPONENT: TASK CARD ACTIONS (EDIT/DELETE) ---
+// --- INNER COMPONENT: TASK CARD ACTIONS (EDIT/DELETE) ---
 interface TaskCardActionsProps {
   task: BoardTask;
   teamMembers: TeamMember[];
@@ -277,7 +406,6 @@ function TaskCardActions({
 
   return (
     <div className="flex items-center gap-0.5 shrink-0">
-      {/* TASK EDIT DIALOG */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogTrigger asChild>
           <Button
@@ -347,6 +475,7 @@ function TaskCardActions({
                 <label className="text-xs font-semibold text-zinc-500">
                   Classification
                 </label>
+                {/* 🟢 RESOLVED: Used TaskType cast on value change and completely removed any assertions [12] */}
                 <select
                   value={formData.type}
                   onChange={(e) =>
@@ -357,7 +486,7 @@ function TaskCardActions({
                   }
                   required
                   disabled={loading}
-                  className="flex h-10 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  className="flex h-10 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none"
                 >
                   <option value="TASK">Task (Feature)</option>
                   <option value="BUG">Bug Fix</option>
@@ -408,7 +537,6 @@ function TaskCardActions({
         </DialogContent>
       </Dialog>
 
-      {/* TASK DELETE DIALOG */}
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogTrigger asChild>
           <Button
