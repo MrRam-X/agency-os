@@ -9,7 +9,7 @@ export interface BoardTask {
   assignedTo: string;
   title: string;
   description?: string;
-  status: "TO_DO" | "IN_PROGRESS" | "REVIEW" | "DONE";
+  status: TaskStatus;
   estimatedHours: number;
   createdBy: string;
   completionDate?: string | null;
@@ -17,6 +17,7 @@ export interface BoardTask {
 }
 
 export type TaskType = "BUG" | "TASK" | "CHANGE_REQUEST"
+export type TaskStatus = "TO_DO" | "IN_PROGRESS" | "REVIEW" | "DONE"
 
 interface BoardState {
   originalTasks: BoardTask[]; // Read-only snapshot of database state

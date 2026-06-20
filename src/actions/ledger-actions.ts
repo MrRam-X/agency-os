@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { connectDB } from "@/lib/db";
+import { adminTaskSchema } from "@/lib/validations/task";
 import { Task } from "@/models/Task";
 import { Ledger } from "@/models/Ledger";
 import { IDailyLogGroup, IAuditLedgerEntry } from "@/types/ledger";
@@ -130,13 +131,13 @@ export async function getDailyTaskLogs(
 }
 
 /**
- * 🟢 PIPELINE 2: Manager Timesheet Audit Ledger
+ * 🟢 PIPELINE 2 (REFACTORED): Manager Timesheet Audit Ledger
+ * Corrects MongoDB ObjectId casting and adds dynamic sprint-level timesheet filtering [1, 8].
  */
-export async function getManagerAuditLedger(): Promise<{
-  success?: boolean;
-  ledger?: IAuditLedgerEntry[];
-  error?: string;
-}> {
+export async function getManagerAuditLedger(
+  billingStatus?: "UNBILLED" | "BILLED",
+  sprintId?: string // 🟢 Added optional sprintId parameter
+): Promise<{ success?: boolean; ledger?: IAuditLedgerEntry[]; error?: string }> {
   try {
     const session = await getServerSession(authOptions);
     if (!session || !session.user) {
@@ -145,69 +146,80 @@ export async function getManagerAuditLedger(): Promise<{
 
     const { role, orgId } = session.user;
     if (role !== "OWNER" && role !== "MANAGER" && role !== "TEAM_LEAD") {
-      return {
-        error: "Unauthorized: Access restricted to administrative roles.",
-      };
+      return { error: "Unauthorized: Access restricted to administrative roles." };
     }
 
     await connectDB();
 
-    const rawLedger = await Ledger.aggregate([
+    const targetStatus = billingStatus || "UNBILLED";
+    const orgObjectId = new mongoose.Types.ObjectId(orgId); // 🟢 CORRECTED: Strictly cast orgId to ObjectId [8]
+
+    // Construct the pipeline stages dynamically [8]
+    const pipeline: mongoose.PipelineStage[] = [
       {
         $match: {
-          orgId: new RegExp(`^${orgId}$`, "i"),
-          billingStatus: "UNBILLED",
+          orgId: orgObjectId, // 🟢 Match against proper ObjectId
+          billingStatus: targetStatus,
         },
       },
+      // Join User details
       {
         $lookup: {
           from: "users",
           let: { userIdObj: "$userId" },
           pipeline: [
-            {
-              $match: {
-                $expr: { $eq: ["$_id", { $toObjectId: "$$userIdObj" }] },
-              },
-            },
+            { $match: { $expr: { $eq: ["$_id", { $toObjectId: "$$userIdObj" }] } } },
           ],
           as: "userDoc",
         },
       },
       { $unwind: { path: "$userDoc", preserveNullAndEmptyArrays: true } },
+      
+      // Join Task details
       {
         $lookup: {
           from: "tasks",
           let: { taskIdObj: "$taskId" },
           pipeline: [
-            {
-              $match: {
-                $expr: { $eq: ["$_id", { $toObjectId: "$$taskIdObj" }] },
-              },
-            },
+            { $match: { $expr: { $eq: ["$_id", { $toObjectId: "$$taskIdObj" }] } } },
           ],
           as: "taskDoc",
         },
       },
       { $unwind: { path: "$taskDoc", preserveNullAndEmptyArrays: true } },
-      {
-        $project: {
-          _id: { $toString: "$_id" },
-          orgId: { $toString: "$orgId" },
-          userId: { $toString: "$userId" },
-          taskId: { $toString: "$taskId" },
-          storyId: { $toString: "$storyId" },
-          hoursLogged: 1,
-          billingStatus: 1,
-          date: { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
-          devName: { $ifNull: ["$userDoc.name", "Unknown Developer"] },
-          taskTitle: { $ifNull: ["$taskDoc.title", "Unknown Task"] },
-          taskType: { $ifNull: ["$taskDoc.type", "TASK"] },
+    ];
+
+    // 🟢 DYNAMIC SPRINT FILTERING [8]:
+    // If a sprintId is selected, filter timesheets at the database layer based on the task's parent sprint
+    if (sprintId && mongoose.Types.ObjectId.isValid(sprintId)) {
+      pipeline.push({
+        $match: {
+          "taskDoc.sprintId": new mongoose.Types.ObjectId(sprintId),
         },
+      });
+    }
+
+    // Project final output
+    pipeline.push({
+      $project: {
+        _id: { $toString: "$_id" },
+        orgId: { $toString: "$orgId" },
+        userId: { $toString: "$userId" },
+        taskId: { $toString: "$taskId" },
+        storyId: { $toString: "$storyId" },
+        hoursLogged: 1,
+        billingStatus: 1,
+        date: { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
+        devName: { $ifNull: ["$userDoc.name", "Unknown Developer"] },
+        taskTitle: { $ifNull: ["$taskDoc.title", "Unknown Task"] },
+        taskType: { $ifNull: ["$taskDoc.type", "TASK"] },
       },
-      {
-        $sort: { date: -1 },
-      },
-    ]);
+    });
+
+    // Sort
+    pipeline.push({ $sort: { date: -1 } });
+
+    const rawLedger = await Ledger.aggregate(pipeline);
 
     return {
       success: true,
@@ -347,9 +359,9 @@ export async function reconcileInvoice(logIds: string[]) {
 
     const { role, orgId } = session.user;
     
-    // 🛡️ Security Gate: Only Managers or Owners can reconcile and lock billing logs [5]
-    if (role !== "OWNER" && role !== "MANAGER") {
-      return { error: "Unauthorized: Only Managers and Owners can execute invoice reconciliation." };
+    // 🛡️ Security Gate: Strictly restrict invoice approval and billing state locks to the OWNER only [5]
+    if (role !== "OWNER") {
+      return { error: "Unauthorized: Only the Organization Owner can approve and lock invoices." };
     }
 
     if (logIds.length === 0) {
@@ -358,17 +370,95 @@ export async function reconcileInvoice(logIds: string[]) {
 
     await connectDB();
 
-    // 🛡️ Transactional Update: Lock all selected ledger entries to BILLED state [21]
+    // Lock all selected ledger entries to BILLED state [21]
     await Ledger.updateMany(
       { _id: { $in: logIds }, orgId },
       { $set: { billingStatus: "BILLED" } }
     );
 
-    // Purge caches to update timesheet lists and financial analytics instantly [1]
     revalidatePath("/dashboard/ledger");
     return { success: true };
   } catch (error) {
     console.error("Reconcile invoice server action error:", error);
     return { error: "An unexpected server error occurred during invoice reconciliation." };
+  }
+}
+
+/**
+ * 🟢 MUTATION: Create Administrative Task & Log
+ * Allows managers to bypass standard developer constraints to create, assign, and log historical tasks [4, 21].
+ */
+export async function createAdministrativeTaskAndLog(
+  projectId: string,
+  sprintId: string,
+  storyId: string,
+  rawData: unknown
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session || !session.user) return { error: "Authentication required." };
+
+    const { role, orgId, id: userId } = session.user;
+    if (role !== "OWNER" && role !== "MANAGER") {
+      return { error: "Unauthorized: Only Managers and Owners can log administrative entries." };
+    }
+
+    await connectDB();
+
+    const validated = adminTaskSchema.safeParse(rawData);
+    if (!validated.success) {
+      const errorMsg = validated.error.issues.map((err) => err.message).join(", ");
+      return { error: `Validation failed: ${errorMsg}` };
+    }
+
+    const { title, description, assignedTo, estimatedHours, type, status, completionDate } = validated.data;
+
+    let finalCompletionDate: Date | null = null;
+    if (status === "DONE" && completionDate) {
+      finalCompletionDate = new Date(completionDate);
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+      if (finalCompletionDate > today) {
+        return { error: "Validation Error: Cannot set future completion dates." };
+      }
+    }
+
+    // 1. Create the Task Document
+    const newTask = await Task.create({
+      orgId,
+      sprintId,
+      storyId,
+      assignedTo,
+      title,
+      description,
+      status,
+      type,
+      estimatedHours,
+      createdBy: userId,
+      completionDate: finalCompletionDate,
+    });
+
+    // 2. If status is DONE, automatically generate corresponding Ledger entry [21]
+    if (status === "DONE" && finalCompletionDate) {
+      await Ledger.create({
+        orgId,
+        userId: assignedTo,
+        taskId: newTask._id,
+        storyId,
+        hoursLogged: estimatedHours,
+        billingStatus: "UNBILLED",
+        date: finalCompletionDate,
+      });
+    }
+
+    // Revalidate routes
+    revalidatePath("/dashboard/ledger");
+    revalidatePath(`/dashboard/board/${sprintId}`);
+    revalidatePath(`/dashboard/projects/${projectId}`);
+
+    return { success: true };
+  } catch (error) {
+    console.error("Administrative task creation error:", error);
+    return { error: "An unexpected server error occurred during administrative task logging." };
   }
 }
