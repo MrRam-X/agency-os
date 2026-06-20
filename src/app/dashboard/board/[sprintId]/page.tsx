@@ -14,7 +14,8 @@ import { SprintBacklogDrawer } from "@/components/dashboard/sprint-backlog-drawe
 import {
   KanbanBoard,
   SerializedUserStory,
-} from "@/components/dashboard/kanban-board"; // 🟢 Swapped local interface to exported shared import [12]
+} from "@/components/dashboard/kanban-board";
+import { BoardSwitcher } from "@/components/dashboard/board-switcher"; // 🟢 Imported
 
 interface SerializedSprint {
   _id: string;
@@ -41,10 +42,21 @@ interface SerializedTask {
   completionDate?: string | null;
 }
 
-// 🟢 Strict, type-safe interface for the Project headers [12]
 interface SerializedProjectHeader {
-  name: string; // 🟢 Added Project Name!
+  name: string;
   members: string[];
+}
+
+interface SimpleProject {
+  _id: string;
+  name: string;
+}
+
+interface SimpleSprint {
+  _id: string;
+  projectId: string;
+  name: string;
+  status: "PLANNING" | "ACTIVE" | "COMPLETED";
 }
 
 interface PageProps {
@@ -59,21 +71,35 @@ export default async function SprintBoardPage({ params }: PageProps) {
     redirect("/login");
   }
 
-  const { orgId } = session.user;
+  const { orgId, role, id: userId } = session.user;
 
   await connectDB();
 
   const activeSprintId = sprintId;
 
-  // Edge Case: Handle "active" dynamic route parameters safely
+  // 🟢 Security & Scope Routing Check: Fetch projects the user actually has access to [1, 5]
+  const projectAccessQuery =
+    role === "OWNER" || role === "MANAGER"
+      ? { orgId } // Managers and Owners can access all projects
+      : { orgId, members: userId }; // Developers/Testers only access assigned projects
+
+  const allowedProjects = await Project.find(projectAccessQuery)
+    .select("name")
+    .lean();
+  const allowedProjectIds = allowedProjects.map((p) => p._id.toString());
+
+  // Edge Case: Handle the "active" dynamic route parameter safely
   if (sprintId === "active") {
+    // Attempt to locate an active sprint belonging to their allowed projects [1]
     let currentSprint = await Sprint.findOne({
-      orgId,
+      projectId: { $in: allowedProjectIds },
       status: "ACTIVE",
     }).lean();
 
     if (!currentSprint) {
-      currentSprint = await Sprint.findOne({ orgId })
+      currentSprint = await Sprint.findOne({
+        projectId: { $in: allowedProjectIds },
+      })
         .sort({ createdAt: -1 })
         .lean();
     }
@@ -85,9 +111,10 @@ export default async function SprintBoardPage({ params }: PageProps) {
           <h2 className="text-xl font-bold text-zinc-900">
             No active sprints found
           </h2>
+          {/* Escaped apostrophes */}
           <p className="text-sm text-zinc-500 mt-2 max-w-sm">
-            To view the Kanban board, you must first create a Project and launch
-            a Sprint.
+            To view the Kanban board, you must first belong to an active Project
+            and launch a Sprint [20].
           </p>
         </div>
       );
@@ -102,26 +129,31 @@ export default async function SprintBoardPage({ params }: PageProps) {
     return redirect("/dashboard");
   }
 
-  // 2. Fetch Project Metadata, selecting "name" and "members" [1, 12]
+  // 2. Fetch Project Metadata
   const project = (await Project.findById(sprint.projectId)
     .select("name members")
     .lean()) as SerializedProjectHeader | null;
   const projectMemberIds = project ? project.members : [];
 
-  // 3. Parallel Query: Fetch stories, tasks, assigned members, and project backlog unassigned stories [1]
-  const [stories, tasks, team, unassignedStories] = await Promise.all([
-    UserStory.find({ sprintId: activeSprintId, orgId }).lean(),
-    Task.find({ sprintId: activeSprintId, orgId }).lean(),
-    User.find({ _id: { $in: projectMemberIds } })
-      .select("name email role")
-      .lean(),
-    UserStory.find({
-      projectId: sprint.projectId,
-      sprintId: null,
-      status: "BACKLOG",
-      orgId,
-    }).lean(),
-  ]);
+  // 3. Parallel Query: Fetch stories, tasks, assigned members, project backlog, and ALL allowed sprints [1]
+  const [stories, tasks, team, unassignedStories, allowedSprints] =
+    await Promise.all([
+      UserStory.find({ sprintId: activeSprintId, orgId }).lean(),
+      Task.find({ sprintId: activeSprintId, orgId }).lean(),
+      User.find({ _id: { $in: projectMemberIds } })
+        .select("name email role")
+        .lean(),
+      UserStory.find({
+        projectId: sprint.projectId,
+        sprintId: null,
+        status: "BACKLOG",
+        orgId,
+      }).lean(),
+      Sprint.find({ projectId: { $in: allowedProjectIds } })
+        .select("name projectId status")
+        .sort({ startDate: 1 })
+        .lean(), // 🟢 Fetch all sprints
+    ]);
 
   // Serialize Mongoose ObjectIds [12]
   const serializedSprint = JSON.parse(
@@ -133,6 +165,12 @@ export default async function SprintBoardPage({ params }: PageProps) {
   const serializedTasks = JSON.parse(JSON.stringify(tasks)) as SerializedTask[];
   const serializedTeam = JSON.parse(JSON.stringify(team));
   const serializedBacklog = JSON.parse(JSON.stringify(unassignedStories));
+  const serializedProjectsList = JSON.parse(
+    JSON.stringify(allowedProjects),
+  ) as SimpleProject[];
+  const serializedSprintsList = JSON.parse(
+    JSON.stringify(allowedSprints),
+  ) as SimpleSprint[];
 
   const formattedDates = `${new Date(serializedSprint.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${new Date(serializedSprint.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
 
@@ -141,7 +179,6 @@ export default async function SprintBoardPage({ params }: PageProps) {
       {/* Sprint Board Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-200 pb-5">
         <div>
-          {/* 🟢 Render Parent Project Name above Sprint Name in subtle uppercase */}
           <span className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-400">
             {project?.name || "Project Workspace"}
           </span>
@@ -161,24 +198,33 @@ export default async function SprintBoardPage({ params }: PageProps) {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Render dynamic sprint start/complete/edit buttons */}
-          <SprintLifecycleButtons 
-            projectId={serializedSprint.projectId} 
-            sprintId={serializedSprint._id} 
-            sprintStatus={serializedSprint.status} 
-            sprintName={serializedSprint.name}
-            startDate={serializedSprint.startDate}
-            endDate={serializedSprint.endDate}
-            userRole={session.user.role} 
+        <div className="flex flex-wrap items-center gap-4">
+          {/* 🟢 Render Widescreen Board Switcher in the Top Right header */}
+          <BoardSwitcher
+            currentProjectId={serializedSprint.projectId}
+            currentSprintId={serializedSprint._id}
+            projects={serializedProjectsList}
+            sprints={serializedSprintsList}
           />
 
-          <SprintBacklogDrawer 
-            projectId={serializedSprint.projectId}
-            sprintId={serializedSprint._id}
-            backlogStories={serializedBacklog}
-            userRole={session.user.role}
-          />
+          <div className="flex items-center gap-3">
+            <SprintLifecycleButtons
+              projectId={serializedSprint.projectId}
+              sprintId={serializedSprint._id}
+              sprintStatus={serializedSprint.status}
+              sprintName={serializedSprint.name}
+              startDate={serializedSprint.startDate}
+              endDate={serializedSprint.endDate}
+              userRole={session.user.role}
+            />
+
+            <SprintBacklogDrawer
+              projectId={serializedSprint.projectId}
+              sprintId={serializedSprint._id}
+              backlogStories={serializedBacklog}
+              userRole={session.user.role}
+            />
+          </div>
         </div>
       </div>
 
